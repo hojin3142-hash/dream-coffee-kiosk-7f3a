@@ -126,6 +126,14 @@
   .who-title{font-size:20px;font-weight:800;text-align:center;margin:6px 0 4px}
   .who-desc{font-size:13px;color:var(--ink-soft);text-align:center;margin-bottom:16px}
   .who-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .who-group-title{
+    display:flex;align-items:center;gap:7px;
+    font-size:12.5px;font-weight:900;color:var(--ink-soft);letter-spacing:.06em;
+    margin:18px 2px 9px;
+  }
+  .who-group-title:first-child{margin-top:4px}
+  .who-group-title .wg-cnt{font-weight:700;color:var(--ink-faint);letter-spacing:0}
+  .wg-dot{width:9px;height:9px;border-radius:3px;flex:none}
   .who-cell{position:relative}
   .who-btn{
     width:100%;height:100%;
@@ -522,7 +530,7 @@
     <div class="who-wrap">
       <div class="who-title">누구의 주문인가요?</div>
       <div class="who-desc">이름을 누르면 주문 시작 · 오른쪽 위 ⋯ 로 휴가/외근/재택/미주문 표시</div>
-      <div class="who-grid" id="whoGrid"></div>
+      <div id="whoGroups"></div>
       <div class="who-foot">
         <button class="to-summary" id="btnGotoCart">📋 지금까지 담긴 주문 보기</button>
       </div>
@@ -609,7 +617,12 @@
 <script>
 'use strict';
 /* ───────────────────────── 데이터 ───────────────────────── */
-const TEAM = ['장순철팀장','김석린실장','김민철','김성민','김종필','김훈중','신기훈','유지연','전세완','정현영','최민석','최성삼','최우종','최현수','최호진'];
+const TEAM_GROUPS = [
+  {name:'Staff', color:'#7a6ba8', members:['장순철팀장','김석린실장','최현수']},
+  {name:'B2C',   color:'#2f80ed', members:['김종필','신기훈','유지연','전세완','최민석','최우종','최호진']},
+  {name:'B2B',   color:'#1a9e5c', members:['최성삼','정현영','김민철','김훈중','김성민']},
+];
+const TEAM = TEAM_GROUPS.flatMap(g=>g.members);
 const STATUS_META = {
   '휴가':{e:'🌴',c:'#e07f0a'},
   '외근':{e:'🚗',c:'#2f80ed'},
@@ -1073,13 +1086,9 @@ async function pickStatus(name){
   save(); renderWho();
 }
 function renderWho(){
-  const grid = $('#whoGrid');
-  grid.innerHTML = '';
-  // 다른 기기에서 담은 게스트 이름도 함께 표시
-  const cartExtras = [...new Set(state.orders.map(o=>o.person))]
-    .filter(n=>!TEAM.includes(n) && !state.guests.includes(n));
-  const all = [...TEAM.map(n=>({n,guest:false})), ...state.guests.map(n=>({n,guest:true})), ...cartExtras.map(n=>({n,guest:true}))];
-  all.forEach(({n,guest})=>{
+  const wrap = $('#whoGroups');
+  wrap.innerHTML = '';
+  const mkCell = (n)=>{
     const st = state.status[n];
     const cnt = personCount(n);
     const cell = document.createElement('div');
@@ -1090,7 +1099,7 @@ function renderWho(){
     if(st) meta = `<span class="st-badge" style="background:${STATUS_META[st].c}">${STATUS_META[st].e} ${st}</span>`;
     else if(cnt) meta = `<span class="meta has">${cnt}잔 · ${won(personTotal(n))}</span>`;
     else meta = `<span class="meta">아직 없음</span>`;
-    b.innerHTML = (guest?'<span class="guest-tag">게스트</span>':'') + `<span class="nm">${n}</span>` + meta;
+    b.innerHTML = `<span class="nm">${n}</span>` + meta;
     b.addEventListener('click', ()=>{
       if(state.status[n]){
         toast(`${n}님은 ${STATUS_META[state.status[n]].e} ${state.status[n]} 상태예요 · ⋯ 버튼으로 해제`);
@@ -1104,27 +1113,44 @@ function renderWho(){
     stBtn.textContent = '⋯';
     stBtn.addEventListener('click', e=>{ e.stopPropagation(); pickStatus(n); });
     cell.appendChild(b); cell.appendChild(stBtn);
-    grid.appendChild(cell);
-  });
-  const addCell = document.createElement('div'); addCell.className='who-cell';
-  const add = document.createElement('button');
-  add.className = 'who-btn add';
-  add.innerHTML = '<span class="nm">＋ 이름 추가</span><span class="meta">팀 외 인원 · 손님</span>';
-  add.addEventListener('click', async ()=>{
-    const r = await dialog({
-      title:'이름 추가',
-      desc:'팀 구성원이 아닌 분의 이름을 입력해주세요',
-      input:true, placeholder:'이름 입력',
-      buttons:[{label:'추가하고 주문 시작', value:'ok', style:'primary'},{label:'취소', value:null}],
-    });
-    if(!r || r.v!=='ok') return;
-    const name = r.input;
-    if(!name){ toast('이름을 입력해주세요'); return; }
-    if(TEAM.includes(name) || state.guests.includes(name)){ toast('이미 있는 이름이에요'); return; }
-    state.guests.push(name); save(); selectPerson(name);
-  });
-  addCell.appendChild(add);
-  grid.appendChild(addCell);
+    return cell;
+  };
+  const addGroup = (title, color, names, withAdd)=>{
+    const t = document.createElement('div');
+    t.className = 'who-group-title';
+    t.innerHTML = `<span class="wg-dot" style="background:${color}"></span>${title} <span class="wg-cnt">${names.length}명</span>`;
+    wrap.appendChild(t);
+    const grid = document.createElement('div');
+    grid.className = 'who-grid';
+    names.forEach(n=> grid.appendChild(mkCell(n)));
+    if(withAdd){
+      const addCell = document.createElement('div'); addCell.className='who-cell';
+      const add = document.createElement('button');
+      add.className = 'who-btn add';
+      add.innerHTML = '<span class="nm">＋ 이름 추가</span><span class="meta">팀 외 인원 · 손님</span>';
+      add.addEventListener('click', async ()=>{
+        const r = await dialog({
+          title:'이름 추가',
+          desc:'팀 구성원이 아닌 분의 이름을 입력해주세요',
+          input:true, placeholder:'이름 입력',
+          buttons:[{label:'추가하고 주문 시작', value:'ok', style:'primary'},{label:'취소', value:null}],
+        });
+        if(!r || r.v!=='ok') return;
+        const name = r.input;
+        if(!name){ toast('이름을 입력해주세요'); return; }
+        if(TEAM.includes(name) || state.guests.includes(name)){ toast('이미 있는 이름이에요'); return; }
+        state.guests.push(name); save(); selectPerson(name);
+      });
+      addCell.appendChild(add);
+      grid.appendChild(addCell);
+    }
+    wrap.appendChild(grid);
+  };
+  TEAM_GROUPS.forEach(g=> addGroup(g.name, g.color, g.members));
+  // 다른 기기에서 담은 게스트 이름도 함께 표시
+  const cartExtras = [...new Set(state.orders.map(o=>o.person))]
+    .filter(n=>!TEAM.includes(n) && !state.guests.includes(n));
+  addGroup('게스트 · 팀 외 인원', 'var(--orange)', [...state.guests, ...cartExtras], true);
 }
 $('#btnGotoCart').addEventListener('click', ()=> show('cart'));
 
