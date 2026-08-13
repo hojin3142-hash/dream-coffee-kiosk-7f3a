@@ -1040,6 +1040,12 @@ function dialog(o){
 
 /* ───────────────────────── 화면 전환 ───────────────────────── */
 const SCREENS = ['start','who','menu','cart','summary','stats'];
+/* 모바일 뒤로가기: 창이 닫히지 않고 앱 안에서 이전 화면으로 이동 */
+let curScreen = 'start';
+let navFromPop = false;
+function pushScreen(name){
+  try{ history.pushState({screen:name}, '', ''); }catch(e){}
+}
 function show(name){
   SCREENS.forEach(s=>$('#scr-'+s).classList.toggle('show', s===name));
   $('#steps').style.display = (name==='start'||name==='stats') ? 'none' : 'flex';
@@ -1057,8 +1063,24 @@ function show(name){
   const cartScreens = ['who','menu','cart','summary'];
   setCartPoll(cartScreens.includes(name));
   if(cartScreens.includes(name)) syncCart();
+  if(!navFromPop && name !== curScreen) pushScreen(name);
+  curScreen = name;
   document.querySelector('.kiosk').scrollTop = 0;
 }
+window.addEventListener('popstate', e=>{
+  const veil = $('#veil'), dlg = $('#dlgVeil');
+  // 팝업이 열려 있으면 뒤로가기는 팝업 닫기로 동작
+  if(veil.classList.contains('show') || dlg.classList.contains('show')){
+    if(veil.classList.contains('show')) closeModal();
+    if(dlg.classList.contains('show')) dlg.click();
+    pushScreen(curScreen);
+    return;
+  }
+  navFromPop = true;
+  show(e.state && e.state.screen ? e.state.screen : 'start');
+  navFromPop = false;
+});
+try{ history.replaceState({screen:'start'}, '', ''); }catch(e){}
 document.querySelectorAll('#steps .step').forEach(el=>{
   el.addEventListener('click', ()=>{
     const to = el.dataset.goto;
