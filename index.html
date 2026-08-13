@@ -874,10 +874,21 @@ const SYNC_READ = 'https://textdb.online/' + SYNC_KEY;
 const SYNC_WRITE = 'https://textdb.online/update/?key=' + SYNC_KEY;
 let syncStatus = {t:null, ok:null};
 let syncBusy = false;
+/* 주문 내용 서명: 두 기기가 동시에 확정해도 같은 주문임을 식별 */
+function recSig(h){
+  return h.date + '|' + h.total + '|' +
+    (h.orders||[]).map(o=>[o.person, o.key, o.qty].join('~')).sort().join(';');
+}
 function mergeHistory(a, b){
   const map = new Map();
   [...a, ...b].forEach(h=>{ if(h && h.id && !map.has(h.id)) map.set(h.id, h); });
-  const merged = [...map.values()].sort((x,y)=>x.ts-y.ts);
+  const sorted = [...map.values()].sort((x,y)=> x.ts-y.ts || (x.id<y.id? -1: 1));
+  // 10분 안에 내용이 완전히 같은 기록은 중복 확정으로 보고 먼저 것만 남긴다
+  const merged = [];
+  for(const h of sorted){
+    const dup = merged.find(x=> recSig(x)===recSig(h) && Math.abs(h.ts-x.ts) < 10*60*1000);
+    if(!dup) merged.push(h);
+  }
   while(merged.length > 600) merged.shift();   // 저장소 용량 보호
   return merged;
 }
@@ -1615,6 +1626,17 @@ $('#btnCopy').addEventListener('click', async ()=>{
 });
 $('#btnNewOrder').addEventListener('click', async ()=>{
   if(!state.orders.length){ toast('저장할 주문이 없어요'); return; }
+  // 확정 직전 공유 장바구니 확인: 다른 기기가 먼저 확정했으면 이 건은 자동 정리
+  await syncCart();
+  if(!state.orders.length){
+    updateFab(); show('start');
+    dialog({
+      title:'이미 확정된 주문이에요',
+      desc:'다른 기기에서 먼저 주문을 확정해서<br>이 주문 건은 자동으로 정리됐어요.<br>중복 저장은 되지 않았습니다 ✅',
+      buttons:[{label:'확인', value:'ok', style:'primary'}],
+    });
+    return;
+  }
   if(!state.payment){
     const p = await pickPayment();
     if(!p){ toast('결제 수단을 선택해야 확정할 수 있어요'); return; }
