@@ -1,4 +1,4 @@
-<title>우리팀 커피 주문 키오스크</title>
+<title>부산구축팀 커피 주문 키오스크</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>
 /* 호스팅 래퍼가 본문의 viewport 메타를 head로 옮기지 않는 경우가 있어 직접 보장 */
@@ -110,7 +110,11 @@
     background:linear-gradient(180deg,#39c2b2,#2f80ed);
     -webkit-background-clip:text;background-clip:text;color:transparent;
   }
-  #scr-start .cup{font-size:72px;filter:drop-shadow(0 8px 14px rgba(47,128,237,.25))}
+  #scr-start .hero-cup{width:160px;height:120px;flex:none;filter:drop-shadow(0 12px 18px rgba(120,70,20,.28))}
+  #scr-start .steam path{animation:steamUp 2.4s ease-in-out infinite}
+  #scr-start .steam path:nth-child(2){animation-delay:.5s}
+  #scr-start .steam path:nth-child(3){animation-delay:1s}
+  @keyframes steamUp{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:.95;transform:translateY(-4px)}}
   #scr-start .touch{
     margin-top:8px;font-size:15px;font-weight:700;color:#a15c00;
     background:#fdeed8;border:1px solid #f6d6a4;border-radius:999px;padding:13px 26px;
@@ -118,7 +122,7 @@
   }
   @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
   @media (prefers-reduced-motion:reduce){
-    #scr-start .touch,.step.on,.who-status{animation:none}
+    #scr-start .touch,.step.on,.who-status,#scr-start .steam path{animation:none}
   }
 
   /* ── 주문자 선택 ───────────────────────────────────────────── */
@@ -503,8 +507,8 @@
   <header class="top">
     <div class="logo" aria-hidden="true">☕</div>
     <div>
-      <h1>우리팀 커피 주문</h1>
-      <div class="sub">청년드림커피 · TEAM KIOSK</div>
+      <h1>부산구축팀 커피 주문</h1>
+      <div class="sub">No.1 coffee · TEAM KIOSK</div>
     </div>
     <button class="stats-btn" id="btnStats">📊 통계</button>
     <button class="reset" id="btnReset">초기화</button>
@@ -519,9 +523,25 @@
 
   <!-- 시작 -->
   <section class="screen show" id="scr-start">
-    <div class="cup" aria-hidden="true">🥤</div>
-    <div class="hello">반가워요 팀원님!<br>여기서 주문하세요.</div>
-    <div class="brand">DREAM<br>COFFEE</div>
+    <svg class="hero-cup" viewBox="0 0 200 150" aria-hidden="true">
+      <ellipse cx="100" cy="130" rx="62" ry="9" fill="rgba(60,35,10,.14)"/>
+      <ellipse cx="100" cy="124" rx="55" ry="9" fill="#fffdf8" stroke="#e3d6c4" stroke-width="2"/>
+      <circle cx="147" cy="88" r="14" fill="none" stroke="#e0d2bd" stroke-width="8"/>
+      <path d="M60,66 L60,80 Q60,122 100,122 Q140,122 140,80 L140,66 Z" fill="#fdfaf4" stroke="#e0d2bd" stroke-width="2"/>
+      <ellipse cx="100" cy="66" rx="40" ry="11" fill="#fdfaf4" stroke="#e0d2bd" stroke-width="2"/>
+      <ellipse cx="100" cy="66" rx="33" ry="8" fill="#3e2412"/>
+      <ellipse cx="100" cy="65" rx="33" ry="7.5" fill="#5d3a1e"/>
+      <path d="M84,65 q8,-5 16,0 t16,0" stroke="#c68e52" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <ellipse cx="88" cy="62" rx="9" ry="2.5" fill="rgba(255,255,255,.25)"/>
+      <path d="M72,90 q-3,14 8,24" stroke="rgba(255,255,255,.55)" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <g class="steam" stroke="#cbb9a3" stroke-width="3.5" fill="none" stroke-linecap="round">
+        <path d="M82,46 q5,-9 0,-17 q-4,-7 2,-13"/>
+        <path d="M100,42 q6,-10 0,-19 q-5,-8 2,-14"/>
+        <path d="M118,46 q5,-9 0,-17 q-4,-7 2,-13"/>
+      </g>
+    </svg>
+    <div class="hello">안녕하세요?<br>여기서 주문하세요.</div>
+    <div class="brand">NO.1<br>COFFEE</div>
     <div class="touch">주문하시려면 화면을 터치해주세요</div>
   </section>
 
@@ -620,7 +640,7 @@
 const TEAM_GROUPS = [
   {name:'Staff', color:'#7a6ba8', members:['장순철팀장','김석린실장','최현수']},
   {name:'B2C',   color:'#2f80ed', members:['김종필','신기훈','유지연','전세완','최민석','최우종','최호진']},
-  {name:'B2B',   color:'#1a9e5c', members:['최성삼','정현영','김민철','김훈중','김성민']},
+  {name:'B2B',   color:'#1a9e5c', members:['김민철','김성민','김훈중','정현영','최성삼']},
 ];
 const TEAM = TEAM_GROUPS.flatMap(g=>g.members);
 const STATUS_META = {
