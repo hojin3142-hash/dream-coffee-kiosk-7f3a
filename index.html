@@ -317,6 +317,16 @@
   .li-pr{font-size:13px;font-weight:800;flex:none;width:64px;text-align:right;font-variant-numeric:tabular-nums}
   .li-del{color:var(--ink-faint);font-size:15px;flex:none;padding:4px}
   .li-del:hover{color:var(--red)}
+  .li-tumbler{
+    flex:none;width:28px;height:28px;border-radius:50%;
+    border:1px solid var(--line);background:var(--card);
+    display:grid;place-items:center;font-size:14px;line-height:1;
+    filter:grayscale(1);opacity:.5;
+  }
+  .li-tumbler.on{
+    filter:none;opacity:1;
+    border-color:var(--good);background:#e7f7ee;
+  }
   .p-sum{
     display:flex;justify-content:space-between;align-items:center;
     padding:11px 14px;background:var(--panel);border-top:1px solid var(--line);
@@ -1262,6 +1272,26 @@ async function addSameMenu(o){
   toast(`${target}님 주문에 ${o.name} 1잔 추가 ✅`);
 }
 
+/* ── 장바구니 항목의 텀블러할인 넣기/빼기 ── */
+function toggleTumbler(o){
+  const cat = o.key.split('|')[0];
+  const it = ITEM_INDEX[cat+'|'+o.name];
+  if(it && it.noTumbler){ toast('이 메뉴는 텀블러할인이 없어요'); return; }
+  const has = o.opts.includes('텀블러할인');
+  const newOpts = has? o.opts.filter(x=>x!=='텀블러할인') : [...o.opts, '텀블러할인'];
+  const newUnit = o.unit + (has? 500 : -500);
+  const newKey = [cat, o.name, o.temp||'', newOpts.join(',')].join('|');
+  const dupe = state.orders.find(x=>x!==o && x.person===o.person && x.key===newKey);
+  if(dupe){
+    dupe.qty += o.qty;
+    state.orders = state.orders.filter(x=>x!==o);
+  } else {
+    o.opts = newOpts; o.unit = newUnit; o.key = newKey;
+  }
+  save(); renderCart(); updateFab();
+  toast(has? '텀블러할인을 뺐어요 (+500원)' : '🥤 텀블러할인 적용 (−500원)');
+}
+
 /* ───────────────────────── 메뉴확인 ───────────────────────── */
 function renderCart(){
   const wrap = $('#cartWrap');
@@ -1282,14 +1312,17 @@ function renderCart(){
     items.forEach(o=>{
       const row = document.createElement('div'); row.className='line-item';
       const detail = [o.temp, ...o.opts].filter(Boolean).join(' · ');
+      const hasTumbler = o.opts.includes('텀블러할인');
       row.innerHTML =
         `<span class="li-emoji" aria-hidden="true">${o.emoji}</span>
          <div class="li-body"><div class="li-nm">${o.name}</div>${detail?`<div class="li-opt">${detail}</div>`:''}</div>
+         <button class="li-tumbler ${hasTumbler?'on':''}" title="텀블러할인 넣기/빼기" aria-label="텀블러할인 넣기/빼기">🥤</button>
          <div class="li-qty">
            <button data-d="-1" aria-label="수량 줄이기">−</button><span class="n">${o.qty}</span><button data-d="1" aria-label="수량 늘리기">＋</button>
          </div>
          <span class="li-pr">${won(o.unit*o.qty)}</span>
          <button class="li-del" aria-label="삭제">🗑</button>`;
+      row.querySelector('.li-tumbler').addEventListener('click', ()=> toggleTumbler(o));
       row.querySelector('[data-d="-1"]').addEventListener('click', ()=>{
         o.qty -= 1;
         if(o.qty<=0) state.orders = state.orders.filter(x=>x!==o);
