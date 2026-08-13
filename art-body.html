@@ -373,12 +373,6 @@
     margin-top:10px;padding:12px;border-radius:10px;background:var(--panel);
     font-size:12.5px;font-weight:700;color:var(--ink-soft);line-height:1.7;text-align:center;
   }
-  .r-items{margin-top:12px;border-top:1.5px dashed var(--line);padding-top:12px}
-  .r-items .ri-title{font-size:13px;font-weight:900;color:var(--ink-soft);margin-bottom:8px}
-  .ri-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:13px;font-weight:700;padding:3.5px 0}
-  .ri-row .n small{color:var(--ink-soft);font-weight:600;font-size:11.5px}
-  .ri-row .q{font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .dlg .d-desc.left{text-align:left}
   .pay-line{display:flex;align-items:center;justify-content:center;gap:8px;margin:2px 0 10px}
   .pay-badge{font-size:12.5px;font-weight:800;border-radius:999px;padding:6px 14px}
   .pay-badge.corp{background:var(--blue-soft);color:#1b5cb8}
@@ -426,29 +420,6 @@
   .brow .bar i.mono{background:var(--blue)}
   .brow .bv{flex:none;width:82px;text-align:right;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
   .brow .bv small{display:block;font-size:10.5px;color:var(--ink-faint);font-weight:700}
-  .sync-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;font-weight:700;color:var(--ink-soft)}
-  .sync-row .sync-btn{
-    font-size:12px;font-weight:800;color:var(--blue);flex:none;
-    border:1px solid #c9ddf9;border-radius:999px;padding:6px 12px;background:var(--card);
-  }
-  .sync-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
-  .sync-dot.ok{background:var(--good)}
-  .sync-dot.bad{background:var(--red)}
-  .sync-dot.wait{background:#c3cad6}
-
-  /* ── 즐겨찾기 ─────────────────────────────────────────────── */
-  .fav-btn{
-    position:absolute;top:12px;right:12px;z-index:2;
-    width:30px;height:30px;border-radius:50%;cursor:pointer;
-    background:rgba(255,255,255,.9);border:1px solid var(--line);
-    display:grid;place-items:center;font-size:15px;color:#c3cad6;line-height:1;
-  }
-  .fav-btn.on{color:#f7b21e;border-color:#f6d6a4}
-  .fav-hint{
-    grid-column:1/-1;text-align:center;font-size:12.5px;font-weight:700;
-    color:var(--ink-faint);background:var(--card);border:1.5px dashed var(--line);
-    border-radius:var(--radius);padding:22px 10px;line-height:1.7;
-  }
   .toast{
     position:fixed;left:50%;bottom:110px;transform:translateX(-50%) translateY(20px);
     background:var(--navy);color:#fff;font-size:13.5px;font-weight:800;
@@ -545,7 +516,6 @@
           <tbody id="rBody"></tbody>
         </table>
         <div class="r-total"><span>총 결제 금액</span><span class="amt" id="rTotal">0원</span></div>
-        <div class="r-items" id="rItems"></div>
         <div class="r-excl" id="rExcl" style="display:none"></div>
       </div>
       <div class="copy-note">‘주문서 복사’를 누르면 카톡에 바로 붙여넣을 수 있어요</div>
@@ -808,77 +778,18 @@ MENU.forEach(c=>c.items.forEach(it=>{ ITEM_INDEX[c.id+'|'+it.n] = {...it, cat:c.
 
 /* ───────────────────────── 상태 ───────────────────────── */
 const LS_KEY = 'dreamCoffeeKiosk.v1';
-let state = { guests:[], orders:[], cur:null, status:{}, history:[], payment:null, favs:[], clearedAt:0 };
+let state = { guests:[], orders:[], cur:null, status:{}, history:[], payment:null };
 try{
   const saved = JSON.parse(localStorage.getItem(LS_KEY));
-  if(saved && Array.isArray(saved.orders)) state = {guests:[], cur:null, status:{}, history:[], payment:null, favs:[], clearedAt:0, ...saved};
+  if(saved && Array.isArray(saved.orders)) state = {guests:[], cur:null, status:{}, history:[], payment:null, ...saved};
   if(!state.status) state.status = {};
   if(!Array.isArray(state.history)) state.history = [];
-  if(!Array.isArray(state.favs)) state.favs = [];
   if(state.payment===undefined) state.payment = null;
-  if(typeof state.clearedAt!=='number') state.clearedAt = 0;
 }catch(e){}
-state.history.forEach(h=>{ if(!h.id) h.id = h.ts + '-' + Math.random().toString(36).slice(2,8); });
 const save = ()=>{ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){} };
 
 const won = n => n.toLocaleString('ko-KR') + '원';
 const $ = s => document.querySelector(s);
-
-/* ───────────────────────── 팀 공유 동기화 (textdb.online) ───────────────────────── */
-const SYNC_KEY = 'dc-hj3142-q8k2x9a4-history';
-const SYNC_READ = 'https://textdb.online/' + SYNC_KEY;
-const SYNC_WRITE = 'https://textdb.online/update/?key=' + SYNC_KEY;
-let syncStatus = {t:null, ok:null};
-let syncBusy = false;
-function mergeHistory(a, b){
-  const map = new Map();
-  [...a, ...b].forEach(h=>{ if(h && h.id && !map.has(h.id)) map.set(h.id, h); });
-  const merged = [...map.values()].sort((x,y)=>x.ts-y.ts);
-  while(merged.length > 600) merged.shift();   // 저장소 용량 보호
-  return merged;
-}
-async function syncNow(){
-  if(syncBusy) return false;
-  syncBusy = true;
-  try{
-    // 클라우드 형식: {v:2, clearedAt, records:[...]} (구버전은 배열)
-    let cloudCleared = 0, cloudRecords = [], cloudStr = '';
-    const res = await fetch(SYNC_READ, {cache:'no-store'});
-    if(res.ok){
-      cloudStr = (await res.text()).trim();
-      if(cloudStr){
-        try{
-          const p = JSON.parse(cloudStr);
-          if(Array.isArray(p)) cloudRecords = p;
-          else if(p && typeof p==='object'){
-            cloudCleared = typeof p.clearedAt==='number'? p.clearedAt : 0;
-            cloudRecords = Array.isArray(p.records)? p.records : [];
-          }
-        }catch(e){}
-      }
-    }
-    // '모두 지우기' 시각 이전의 기록은 모든 기기에서 폐기
-    const clearedAt = Math.max(state.clearedAt||0, cloudCleared);
-    state.clearedAt = clearedAt;
-    const merged = mergeHistory(cloudRecords, state.history).filter(h=>h.ts > clearedAt);
-    state.history = merged; save();
-    const newStr = JSON.stringify({v:2, clearedAt, records:merged});
-    if(newStr !== cloudStr){
-      const body = new URLSearchParams();
-      body.set('value', newStr);
-      const w = await fetch(SYNC_WRITE, {method:'POST', body});
-      if(!w.ok) throw new Error('write ' + w.status);
-    }
-    syncStatus = {t:Date.now(), ok:true};
-    return true;
-  }catch(e){
-    syncStatus = {t:Date.now(), ok:false};
-    return false;
-  }finally{
-    syncBusy = false;
-    if(document.getElementById('scr-stats').classList.contains('show')) renderStats();
-  }
-}
 
 /* ───────────────────────── 확인/입력 다이얼로그(샌드박스에서 confirm/prompt가 막혀 자체 구현) ── */
 function dialog(o){
@@ -980,7 +891,7 @@ function renderWho(){
         toast(`${n}님은 ${STATUS_META[state.status[n]].e} ${state.status[n]} 상태예요 · ⋯ 버튼으로 해제`);
         return;
       }
-      selectPerson(n);
+      state.cur = n; save(); show('menu');
     });
     const stBtn = document.createElement('button');
     stBtn.className = 'who-status';
@@ -1005,71 +916,21 @@ function renderWho(){
     const name = r.input;
     if(!name){ toast('이름을 입력해주세요'); return; }
     if(TEAM.includes(name) || state.guests.includes(name)){ toast('이미 있는 이름이에요'); return; }
-    state.guests.push(name); save(); selectPerson(name);
+    state.guests.push(name); state.cur = name; save(); show('menu');
   });
   addCell.appendChild(add);
   grid.appendChild(addCell);
 }
 $('#btnGotoCart').addEventListener('click', ()=> show('cart'));
 
-/* ── 지난 주문 재주문 ── */
-function lastOrderOf(name){
-  for(let i = state.history.length-1; i >= 0; i--){
-    const items = state.history[i].orders.filter(o=>o.person===name);
-    if(items.length) return {
-      items,
-      total: items.reduce((s,o)=>s+o.unit*o.qty,0),
-      date: state.history[i].date,
-    };
-  }
-  return null;
-}
-async function selectPerson(n){
-  state.cur = n; save();
-  const last = lastOrderOf(n);
-  if(last){
-    const list = last.items.map(o=>`· ${orderLine(o)} — ${won(o.unit*o.qty)}`).join('<br>');
-    const r = await dialog({
-      title:`🕐 ${n}님의 지난 주문`,
-      desc:`${last.date}<br>${list}<br><b>합계 ${won(last.total)}</b>`,
-      buttons:[
-        {label:'🔁 지난 주문 그대로 담기', value:'re', style:'primary'},
-        {label:'새로 주문하기', value:'new'},
-      ],
-    });
-    if(r && r.v==='re'){
-      last.items.forEach(o=>{
-        const exist = state.orders.find(x=>x.person===n && x.key===o.key);
-        if(exist) exist.qty += o.qty;
-        else state.orders.push({...o, person:n, guest:state.guests.includes(n), opts:[...(o.opts||[])]});
-      });
-      save(); updateFab(); show('cart');
-      toast(`${n}님의 지난 주문을 그대로 담았어요 ✅`);
-      return;
-    }
-  }
-  show('menu');
-}
-
 /* ───────────────────────── 메뉴 렌더 ───────────────────────── */
 function renderOrdererBar(){ $('#curName').textContent = state.cur || '-'; updateFab(); }
 $('#btnSwitch').addEventListener('click', ()=> show('who'));
 
-function favItems(){ return state.favs.map(k=>ITEM_INDEX[k]).filter(Boolean); }
-function toggleFav(k){
-  const i = state.favs.indexOf(k);
-  if(i>=0){ state.favs.splice(i,1); toast('즐겨찾기에서 뺐어요'); }
-  else{ state.favs.push(k); toast('⭐ 즐겨찾기에 담았어요'); }
-  save();
-  const sc = $('#menuScroll').scrollTop;
-  buildMenu();
-  $('#menuScroll').scrollTop = sc;
-}
 function buildMenu(){
   const catList = $('#catList'), scroll = $('#menuScroll');
   catList.innerHTML=''; scroll.innerHTML='';
-  const CATS = [{id:'fav', name:'⭐ 즐겨찾기', items:favItems(), fav:true}, ...MENU];
-  CATS.forEach((c,i)=>{
+  MENU.forEach((c,i)=>{
     const cb = document.createElement('button');
     cb.className = 'cat'+(i===0?' on':'');
     cb.textContent = c.name; cb.dataset.cat = c.id;
@@ -1082,38 +943,27 @@ function buildMenu(){
     sec.id = 'sec-'+c.id; sec.dataset.cat = c.id;
     sec.innerHTML = `<div class="sec-title">${c.name}</div>`;
     const grid = document.createElement('div'); grid.className='items';
-    if(c.fav && !c.items.length){
-      grid.innerHTML = `<div class="fav-hint">메뉴 카드의 ☆ 별표를 누르면<br>여기에 즐겨찾기로 모아져요</div>`;
-    }
     c.items.forEach(it=>{
-      const catId = it.cat || c.id;
-      const fk = catId + '|' + it.n;
-      const isFav = state.favs.includes(fk);
       const card = document.createElement('button');
       card.className = 'item'+(it.soldout?' soldout':'');
       card.innerHTML =
         `<div class="thumb">${it.v? svgFor(it.v): it.e}</div>`+
-        `<span class="fav-btn ${isFav?'on':''}" role="button" aria-label="즐겨찾기" data-fk="${fk}">${isFav?'★':'☆'}</span>`+
         (it.soldout?'<span class="soldout-badge">품절</span>':'')+
         `<div class="nm">${it.n}</div><div class="pr">${won(it.p)}</div>`;
-      card.addEventListener('click', e=>{
-        const fb = e.target.closest('.fav-btn');
-        if(fb){ toggleFav(fb.dataset.fk); return; }
-        if(!it.soldout) openModal(catId, it.n);
-      });
+      if(!it.soldout) card.addEventListener('click', ()=> openModal(c.id, it.n));
       grid.appendChild(card);
     });
     sec.appendChild(grid);
     scroll.appendChild(sec);
   });
-  scroll.onscroll = ()=>{
-    let active = CATS[0].id;
-    for(const c of CATS){
+  scroll.addEventListener('scroll', ()=>{
+    let active = MENU[0].id;
+    for(const c of MENU){
       const el = document.getElementById('sec-'+c.id);
-      if(el && el.offsetTop - scroll.scrollTop <= 120) active = c.id;
+      if(el.offsetTop - scroll.scrollTop <= 120) active = c.id;
     }
     catList.querySelectorAll('.cat').forEach(b=>b.classList.toggle('on', b.dataset.cat===active));
-  };
+  }, {passive:true});
 }
 function updateFab(){
   const n = state.orders.reduce((s,o)=>s+o.qty,0);
@@ -1350,20 +1200,6 @@ function orderLine(o){
   const detail = [o.temp, ...o.opts].filter(Boolean).join('/');
   return `${o.name}${detail?`(${detail})`:''} ×${o.qty}`;
 }
-/* 주문자와 무관하게 같은 메뉴·옵션끼리 묶은 요약 (매장 주문용) */
-function itemSummary(orders){
-  const m = new Map();
-  orders.forEach(o=>{
-    const k = [o.name, o.temp||'', (o.opts||[]).join(',')].join('|');
-    const e = m.get(k) || {name:o.name, temp:o.temp, opts:o.opts||[], qty:0, amt:0};
-    e.qty += o.qty; e.amt += o.unit*o.qty;
-    m.set(k, e);
-  });
-  return [...m.values()].sort((a,b)=>b.qty-a.qty);
-}
-function summaryDetail(e){
-  return [e.temp, ...e.opts].filter(Boolean).join('/');
-}
 function exclGroups(){
   const g = {};
   Object.entries(state.status).forEach(([name,st])=>{ (g[st] = g[st]||[]).push(name); });
@@ -1385,13 +1221,6 @@ function renderSummary(){
     body.appendChild(tr);
   });
   $('#rTotal').textContent = won(state.orders.reduce((s,o)=>s+o.unit*o.qty,0));
-  const items = itemSummary(state.orders);
-  $('#rItems').innerHTML = items.length?
-    `<div class="ri-title">📦 메뉴별 요약 — 매장에서 이대로 주문하세요</div>` +
-    items.map(e=>{
-      const d = summaryDetail(e);
-      return `<div class="ri-row"><span class="n">${e.name}${d?` <small>(${d})</small>`:''}</span><span class="q">×${e.qty} · ${won(e.amt)}</span></div>`;
-    }).join('') : '';
   const pl = $('#rPayLine');
   if(state.payment){
     const p = state.payment;
@@ -1427,11 +1256,6 @@ $('#btnCopy').addEventListener('click', async ()=>{
     txt += `\n[${p}] ${won(personTotal(p))}\n`;
     items.forEach(o=>{ txt += `  - ${orderLine(o)} ${won(o.unit*o.qty)}\n`; });
   });
-  txt += '\n[메뉴별 요약]\n';
-  itemSummary(state.orders).forEach(e=>{
-    const d = summaryDetail(e);
-    txt += `  - ${e.name}${d?'('+d+')':''} ×${e.qty}\n`;
-  });
   txt += `\n■ 총 ${state.orders.reduce((s,o)=>s+o.qty,0)}잔 · 합계 ${won(state.orders.reduce((s,o)=>s+o.unit*o.qty,0))}`;
   const g = exclGroups();
   const keys = Object.keys(g);
@@ -1463,29 +1287,15 @@ $('#btnNewOrder').addEventListener('click', async ()=>{
   const now = new Date();
   const date = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   state.history.push({
-    id: now.getTime() + '-' + Math.random().toString(36).slice(2,8),
     ts: now.getTime(), date,
     payment: state.payment,
     cups: state.orders.reduce((s,o)=>s+o.qty,0),
     total: state.orders.reduce((s,o)=>s+o.unit*o.qty,0),
     orders: state.orders,
   });
-  const savedRec = state.history[state.history.length-1];
   state.orders = []; state.cur = null; state.status = {}; state.payment = null;
   save(); updateFab(); show('start');
   toast('주문을 기록에 저장했어요 📊');
-  syncNow().then(ok=>{ if(!ok) toast('☁️ 오프라인 — 다음 동기화 때 팀 통계에 합쳐져요'); });
-  // 확정 직후, 매장에서 그대로 읽을 수 있는 상품별 요약을 보여준다
-  const sm = itemSummary(savedRec.orders);
-  const lines = sm.map(e=>{
-    const d = summaryDetail(e);
-    return `☕ ${e.name}${d?'('+d+')':''} <b>×${e.qty}</b>`;
-  }).join('<br>');
-  dialog({
-    title:'📦 주문 요약',
-    desc:`${lines}<br><br><b>총 ${savedRec.cups}잔 · ${won(savedRec.total)}</b><br>${savedRec.payment.type==='corp'?'🏢 법인카드':'👤 개인카드 · '+savedRec.payment.owner}<br><br>매장 키오스크에서 이대로 주문하세요!`,
-    buttons:[{label:'확인', value:'ok', style:'primary'}],
-  });
 });
 $('#btnReset').addEventListener('click', async ()=>{
   const r = await dialog({
@@ -1500,40 +1310,22 @@ $('#btnReset').addEventListener('click', async ()=>{
   if(!r) return;
   if(r.v==='orders'){
     state.orders = []; state.cur = null; state.status = {}; state.payment = null;
-    save(); updateFab(); show('start');
-    toast('담긴 주문을 지웠어요');
   } else {
-    // 삭제 시각을 남겨 클라우드와 다른 기기의 기록도 함께 지운다
-    state = {guests:[], orders:[], cur:null, status:{}, history:[], payment:null, favs:[], clearedAt: Date.now()};
-    save(); updateFab(); show('start');
-    toast('통계 기록 삭제 중…');
-    syncNow().then(ok=>{
-      toast(ok? '팀 통계 기록까지 모두 지웠어요' : '☁️ 오프라인 — 연결되면 팀 기록도 함께 지워져요');
-    });
+    state = {guests:[], orders:[], cur:null, status:{}, history:[], payment:null};
   }
+  save(); updateFab(); show('start');
+  toast('초기화했어요');
 });
 
 /* ───────────────────────── 통계 ───────────────────────── */
-$('#btnStats').addEventListener('click', ()=>{ show('stats'); syncNow(); });
+$('#btnStats').addEventListener('click', ()=> show('stats'));
 $('#btnStatsBack').addEventListener('click', ()=> show(state.orders.length? 'who' : 'start'));
 
-function syncCardHTML(){
-  const dot = syncBusy? 'wait' : syncStatus.ok===true? 'ok' : syncStatus.ok===false? 'bad' : 'wait';
-  const label = syncBusy? '동기화 중…'
-    : syncStatus.ok===true? '팀 공유 통계 · 동기화됨'
-    : syncStatus.ok===false? '동기화 실패 — 인터넷 연결을 확인해주세요'
-    : '동기화 확인 중…';
-  return `<div class="s-card sync-row">
-    <span><span class="sync-dot ${dot}"></span>☁️ ${label}</span>
-    <button class="sync-btn" id="btnSyncNow">↻ 동기화</button>
-  </div>`;
-}
 function renderStats(){
   const w = $('#statsWrap');
   const H = state.history;
   if(!H.length){
-    w.innerHTML = syncCardHTML() + `<div class="empty"><span class="e-ic">📊</span>아직 저장된 주문 기록이 없어요.<br>합계보기에서 ‘주문 확정’을 누르면<br>모든 기기가 함께 보는 통계가 쌓입니다.</div>`;
-    const b0 = $('#btnSyncNow'); if(b0) b0.onclick = ()=>{ renderStats(); syncNow(); };
+    w.innerHTML = `<div class="empty"><span class="e-ic">📊</span>아직 저장된 주문 기록이 없어요.<br>합계보기에서 ‘주문 확정’을 누르면<br>이곳에 통계가 쌓입니다.</div>`;
     return;
   }
   const totalAmt = H.reduce((s,h)=>s+h.total,0);
@@ -1591,7 +1383,7 @@ function renderStats(){
   const maxMenu = menuTop.length? menuTop[0][1] : 0;
   const maxSpend = spendRows.length? spendRows[0][1] : 0;
 
-  w.innerHTML = syncCardHTML() + `
+  w.innerHTML = `
     <div class="tiles">
       <div class="tile"><div class="l">누적 주문</div><div class="v">${H.length}회 · ${cups}잔</div></div>
       <div class="tile"><div class="l">누적 지출</div><div class="v">${won(totalAmt)}</div></div>
@@ -1633,11 +1425,9 @@ function renderStats(){
     <div class="s-card">
       <div class="s-title">☕ 팀원별 누적 소비 TOP 10</div>
       ${spendRows.map(([n,v])=>`<div class="brow"><span class="bl">${n}</span>${mono(v, maxSpend)}<span class="bv">${won(v)}</span></div>`).join('')}
-      <div class="s-cap">확정된 주문 ${H.length}건 기준 · 진행 중인 주문은 ‘주문 확정’ 후 반영됩니다<br>☁️ 통계는 모든 기기에서 자동으로 공유됩니다</div>
+      <div class="s-cap">확정된 주문 ${H.length}건 기준 · 진행 중인 주문은 ‘주문 확정’ 후 반영됩니다</div>
     </div>
   `;
-  const sb = $('#btnSyncNow');
-  if(sb) sb.onclick = ()=>{ syncNow(); renderStats(); };
 }
 
 /* ───────────────────────── 토스트 ───────────────────────── */
@@ -1653,5 +1443,5 @@ function toast(msg){
 buildMenu();
 updateFab();
 if(state.orders.length) show('who');
-syncNow();   // 접속 시 팀 공유 통계 자동 동기화
 </script>
+
