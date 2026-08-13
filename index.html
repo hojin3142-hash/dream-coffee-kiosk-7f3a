@@ -43,14 +43,15 @@
   button:focus-visible,input:focus-visible{outline:3px solid var(--blue);outline-offset:2px;border-radius:8px}
   input{font:inherit}
 
+  /* 고정 높이 키오스크: 화면 안쪽 영역만 스크롤되어 사이드탭·버튼이 항상 보인다 */
   .kiosk{
-    max-width:560px;min-height:100dvh;margin:0 auto;
+    max-width:560px;height:100dvh;margin:0 auto;
     background:var(--panel);
     box-shadow:var(--shadow);
-    display:flex;flex-direction:column;position:relative;
+    display:flex;flex-direction:column;position:relative;overflow:hidden;
   }
   @media (min-width:600px){
-    .kiosk{min-height:calc(100dvh - 32px);margin:16px auto;border-radius:24px;overflow:hidden;border:8px solid #2b2f36}
+    .kiosk{height:calc(100dvh - 32px);margin:16px auto;border-radius:24px;border:8px solid #2b2f36}
   }
 
   /* ── 헤더 ─────────────────────────────────────────────────── */
@@ -88,9 +89,15 @@
     padding:11px 4px;border-radius:999px;background:#e8ebf1;color:var(--ink-faint);
     white-space:nowrap;
   }
-  .step.on{background:var(--navy);color:#fff}
+  .step.on{background:var(--navy);color:#fff;animation:stepPulse 1.5s ease-out infinite}
   .step.done{background:var(--blue-soft);color:var(--blue)}
+  .step.done:hover{background:#d5e6fb}
   .steps .arrow{color:#c3cad6;font-size:11px;flex:none}
+  @keyframes stepPulse{
+    0%{box-shadow:0 0 0 0 rgba(47,128,237,.5)}
+    70%{box-shadow:0 0 0 7px rgba(47,128,237,0)}
+    100%{box-shadow:0 0 0 0 rgba(47,128,237,0)}
+  }
 
   .screen{display:none;flex:1;flex-direction:column;min-height:0}
   .screen.show{display:flex}
@@ -110,10 +117,12 @@
     animation:pulse 1.6s ease-in-out infinite;
   }
   @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
-  @media (prefers-reduced-motion:reduce){#scr-start .touch{animation:none}}
+  @media (prefers-reduced-motion:reduce){
+    #scr-start .touch,.step.on,.who-status{animation:none}
+  }
 
   /* ── 주문자 선택 ───────────────────────────────────────────── */
-  .who-wrap{padding:18px 16px 28px;overflow-y:auto}
+  .who-wrap{flex:1;min-height:0;padding:18px 16px 28px;overflow-y:auto}
   .who-title{font-size:20px;font-weight:800;text-align:center;margin:6px 0 4px}
   .who-desc{font-size:13px;color:var(--ink-soft);text-align:center;margin-bottom:16px}
   .who-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -133,11 +142,17 @@
   .who-btn.add{border-style:dashed;color:var(--ink-soft);background:var(--panel)}
   .who-btn.add .nm{color:var(--blue)}
   .who-status{
-    position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;
-    display:grid;place-items:center;font-size:13px;font-weight:800;color:var(--ink-faint);
-    background:var(--panel);border:1px solid var(--line);line-height:1;
+    position:absolute;top:4px;right:4px;width:26px;height:26px;border-radius:50%;
+    display:grid;place-items:center;font-size:13px;font-weight:800;color:var(--blue);
+    background:var(--blue-soft);border:1.5px solid #a9ccf7;line-height:1;
+    animation:dotPulse 2s ease-out infinite;
   }
-  .who-status:hover{color:var(--blue);border-color:var(--blue)}
+  .who-status:hover{color:#fff;background:var(--blue);border-color:var(--blue)}
+  @keyframes dotPulse{
+    0%{box-shadow:0 0 0 0 rgba(47,128,237,.4)}
+    70%{box-shadow:0 0 0 6px rgba(47,128,237,0)}
+    100%{box-shadow:0 0 0 0 rgba(47,128,237,0)}
+  }
   .guest-tag{
     position:absolute;top:-7px;left:8px;font-size:10px;font-weight:800;color:#fff;
     background:var(--orange);border-radius:999px;padding:2px 7px;
@@ -1211,7 +1226,7 @@ function buildMenu(){
     let active = CATS[0].id;
     for(const c of CATS){
       const el = document.getElementById('sec-'+c.id);
-      if(el && el.offsetTop - scroll.scrollTop <= 120) active = c.id;
+      if(el && el.offsetTop - scroll.offsetTop - scroll.scrollTop <= 140) active = c.id;
     }
     catList.querySelectorAll('.cat').forEach(b=>b.classList.toggle('on', b.dataset.cat===active));
   };
