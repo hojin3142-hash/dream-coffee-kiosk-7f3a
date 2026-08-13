@@ -829,6 +829,12 @@ try{
   if(typeof state.clearedAt!=='number') state.clearedAt = 0;
 }catch(e){}
 state.history.forEach(h=>{ if(!h.id) h.id = h.ts + '-' + Math.random().toString(36).slice(2,8); });
+const newLid = ()=> Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+if(!Array.isArray(state.cartTombs)) state.cartTombs = [];
+if(typeof state.cartClearedAt!=='number') state.cartClearedAt = 0;
+state.orders.forEach(o=>{
+  if(!o.lid){ o.lid = newLid(); o.ct = o.ct || Date.now(); o.mt = o.mt || Date.now(); }
+});
 const save = ()=>{ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){} };
 
 const won = n => n.toLocaleString('ko-KR') + '원';
@@ -890,6 +896,84 @@ async function syncNow(){
   }
 }
 
+/* ── 팀 공유 장바구니: 각자 폰에서 담으면 자동으로 합쳐진다 ── */
+const CART_READ = 'https://textdb.online/' + SYNC_KEY + '-cart';
+const CART_WRITE = 'https://textdb.online/update/?key=' + SYNC_KEY + '-cart';
+let cartBusy = false, cartDirty = false, cartPushTimer = null, cartPoll = null;
+function tombLine(o){
+  state.cartTombs.push({lid:o.lid, mt:Date.now()});
+  state.orders = state.orders.filter(x=>x!==o);
+}
+async function syncCart(){
+  if(cartBusy){ cartDirty = true; return false; }
+  cartBusy = true;
+  try{
+    let cloud = {clearedAt:0, lines:[], tombs:[]}, cloudStr = '';
+    const res = await fetch(CART_READ, {cache:'no-store'});
+    if(res.ok){
+      cloudStr = (await res.text()).trim();
+      if(cloudStr){
+        try{
+          const p = JSON.parse(cloudStr);
+          if(p && typeof p==='object'){
+            cloud = {
+              clearedAt: typeof p.clearedAt==='number'? p.clearedAt : 0,
+              lines: Array.isArray(p.lines)? p.lines : [],
+              tombs: Array.isArray(p.tombs)? p.tombs : [],
+            };
+          }
+        }catch(e){}
+      }
+    }
+    // 주문 확정/비우기 시각 이전의 줄은 모든 기기에서 폐기
+    const cA = Math.max(state.cartClearedAt||0, cloud.clearedAt);
+    state.cartClearedAt = cA;
+    // 삭제 표식(tombstone): lid별 최신만 유지
+    const tombMap = new Map();
+    [...cloud.tombs, ...state.cartTombs].forEach(t=>{
+      if(t && t.lid){ const e = tombMap.get(t.lid); if(!e || t.mt > e.mt) tombMap.set(t.lid, t); }
+    });
+    const tombs = [...tombMap.values()].filter(t=>t.mt > cA);
+    // 줄 병합: lid별로 최신 수정본 채택
+    const lineMap = new Map();
+    [...cloud.lines, ...state.orders].forEach(l=>{
+      if(l && l.lid){ const e = lineMap.get(l.lid); if(!e || (l.mt||0) > (e.mt||0)) lineMap.set(l.lid, l); }
+    });
+    let lines = [...lineMap.values()].filter(l=>(l.mt||0) > cA);
+    lines = lines.filter(l=>{ const t = tombMap.get(l.lid); return !(t && t.mt >= (l.mt||0)); });
+    lines.sort((a,b)=>(a.ct||0)-(b.ct||0));
+    const before = JSON.stringify(state.orders);
+    state.orders = lines; state.cartTombs = tombs; save();
+    const newStr = JSON.stringify({v:1, clearedAt:cA, lines, tombs});
+    if(newStr !== cloudStr){
+      const body = new URLSearchParams();
+      body.set('value', newStr);
+      const w = await fetch(CART_WRITE, {method:'POST', body});
+      if(!w.ok) throw new Error('write ' + w.status);
+    }
+    if(JSON.stringify(state.orders) !== before){
+      updateFab();
+      if($('#scr-cart').classList.contains('show')) renderCart();
+      if($('#scr-who').classList.contains('show')) renderWho();
+      if($('#scr-summary').classList.contains('show')) renderSummary();
+    }
+    return true;
+  }catch(e){
+    return false;
+  }finally{
+    cartBusy = false;
+    if(cartDirty){ cartDirty = false; syncCart(); }
+  }
+}
+function queueCartSync(){
+  clearTimeout(cartPushTimer);
+  cartPushTimer = setTimeout(syncCart, 1200);
+}
+function setCartPoll(on){
+  clearInterval(cartPoll);
+  cartPoll = on? setInterval(syncCart, 8000) : null;
+}
+
 /* ───────────────────────── 확인/입력 다이얼로그(샌드박스에서 confirm/prompt가 막혀 자체 구현) ── */
 function dialog(o){
   return new Promise(resolve=>{
@@ -930,6 +1014,10 @@ function show(name){
   if(name==='cart') renderCart();
   if(name==='summary') renderSummary();
   if(name==='stats') renderStats();
+  // 공유 장바구니: 주문 관련 화면에서는 주기적으로 다른 기기 담은 내역을 가져온다
+  const cartScreens = ['who','menu','cart','summary'];
+  setCartPoll(cartScreens.includes(name));
+  if(cartScreens.includes(name)) syncCart();
   document.querySelector('.kiosk').scrollTop = 0;
 }
 document.querySelectorAll('#steps .step').forEach(el=>{
@@ -972,7 +1060,10 @@ async function pickStatus(name){
 function renderWho(){
   const grid = $('#whoGrid');
   grid.innerHTML = '';
-  const all = [...TEAM.map(n=>({n,guest:false})), ...state.guests.map(n=>({n,guest:true}))];
+  // 다른 기기에서 담은 게스트 이름도 함께 표시
+  const cartExtras = [...new Set(state.orders.map(o=>o.person))]
+    .filter(n=>!TEAM.includes(n) && !state.guests.includes(n));
+  const all = [...TEAM.map(n=>({n,guest:false})), ...state.guests.map(n=>({n,guest:true})), ...cartExtras.map(n=>({n,guest:true}))];
   all.forEach(({n,guest})=>{
     const st = state.status[n];
     const cnt = personCount(n);
@@ -1050,10 +1141,10 @@ async function selectPerson(n){
     if(r && r.v==='re'){
       last.items.forEach(o=>{
         const exist = state.orders.find(x=>x.person===n && x.key===o.key);
-        if(exist) exist.qty += o.qty;
-        else state.orders.push({...o, person:n, guest:state.guests.includes(n), opts:[...(o.opts||[])]});
+        if(exist){ exist.qty += o.qty; exist.mt = Date.now(); }
+        else state.orders.push({...o, lid:newLid(), ct:Date.now(), mt:Date.now(), person:n, guest:state.guests.includes(n), opts:[...(o.opts||[])]});
       });
-      save(); updateFab(); show('cart');
+      save(); updateFab(); queueCartSync(); show('cart');
       toast(`${n}님의 지난 주문을 그대로 담았어요 ✅`);
       return;
     }
@@ -1235,16 +1326,17 @@ function addToOrder(){
   if(m.tumbler) optArr.push('텀블러할인');
   const key = [m.it.cat, m.it.n, m.temp||'', optArr.join(',')].join('|');
   const exist = state.orders.find(o=>o.person===state.cur && o.key===key);
-  if(exist){ exist.qty += m.qty; }
+  if(exist){ exist.qty += m.qty; exist.mt = Date.now(); }
   else{
     state.orders.push({
+      lid: newLid(), ct: Date.now(), mt: Date.now(),
       person: state.cur, guest: state.guests.includes(state.cur),
       key, name: m.it.n, emoji: m.it.e,
       temp: m.it.t==='both'? m.temp : (m.it.t==='iceOnly'?'ICE': m.it.t==='hotOnly'?'HOT': null),
       opts: optArr, unit: modalUnit(), qty: m.qty,
     });
   }
-  save(); closeModal(); updateFab();
+  save(); closeModal(); updateFab(); queueCartSync();
   toast(`${state.cur}님 주문에 담았어요 ✅`);
 }
 
@@ -1266,9 +1358,9 @@ async function addSameMenu(o){
   if(!r) return;
   const target = r.v==='same'? o.person : others[+r.v.slice(1)];
   const exist = state.orders.find(x=>x.person===target && x.key===o.key);
-  if(exist) exist.qty += 1;
-  else state.orders.push({...o, person:target, guest:state.guests.includes(target), opts:[...o.opts], qty:1});
-  save(); renderCart(); updateFab();
+  if(exist){ exist.qty += 1; exist.mt = Date.now(); }
+  else state.orders.push({...o, lid:newLid(), ct:Date.now(), mt:Date.now(), person:target, guest:state.guests.includes(target), opts:[...o.opts], qty:1});
+  save(); renderCart(); updateFab(); queueCartSync();
   toast(`${target}님 주문에 ${o.name} 1잔 추가 ✅`);
 }
 
@@ -1283,12 +1375,12 @@ function toggleTumbler(o){
   const newKey = [cat, o.name, o.temp||'', newOpts.join(',')].join('|');
   const dupe = state.orders.find(x=>x!==o && x.person===o.person && x.key===newKey);
   if(dupe){
-    dupe.qty += o.qty;
-    state.orders = state.orders.filter(x=>x!==o);
+    dupe.qty += o.qty; dupe.mt = Date.now();
+    tombLine(o);
   } else {
-    o.opts = newOpts; o.unit = newUnit; o.key = newKey;
+    o.opts = newOpts; o.unit = newUnit; o.key = newKey; o.mt = Date.now();
   }
-  save(); renderCart(); updateFab();
+  save(); renderCart(); updateFab(); queueCartSync();
   toast(has? '텀블러할인을 뺐어요 (+500원)' : '🥤 텀블러할인 적용 (−500원)');
 }
 
@@ -1324,14 +1416,14 @@ function renderCart(){
          <button class="li-del" aria-label="삭제">🗑</button>`;
       row.querySelector('.li-tumbler').addEventListener('click', ()=> toggleTumbler(o));
       row.querySelector('[data-d="-1"]').addEventListener('click', ()=>{
-        o.qty -= 1;
-        if(o.qty<=0) state.orders = state.orders.filter(x=>x!==o);
-        save(); renderCart(); updateFab();
+        o.qty -= 1; o.mt = Date.now();
+        if(o.qty<=0) tombLine(o);
+        save(); renderCart(); updateFab(); queueCartSync();
       });
       row.querySelector('[data-d="1"]').addEventListener('click', ()=> addSameMenu(o));
       row.querySelector('.li-del').addEventListener('click', ()=>{
-        state.orders = state.orders.filter(x=>x!==o);
-        save(); renderCart(); updateFab();
+        tombLine(o);
+        save(); renderCart(); updateFab(); queueCartSync();
       });
       card.appendChild(row);
     });
@@ -1504,10 +1596,12 @@ $('#btnNewOrder').addEventListener('click', async ()=>{
     orders: state.orders,
   });
   const savedRec = state.history[state.history.length-1];
-  state.orders = []; state.cur = null; state.status = {}; state.payment = null;
+  state.orders = []; state.cartTombs = []; state.cartClearedAt = Date.now();
+  state.cur = null; state.status = {}; state.payment = null;
   save(); updateFab(); show('start');
   toast('주문을 기록에 저장했어요 📊');
   syncNow().then(ok=>{ if(!ok) toast('☁️ 오프라인 — 다음 동기화 때 팀 통계에 합쳐져요'); });
+  syncCart();   // 모든 기기의 공유 장바구니를 비운다
   // 확정 직후, 매장에서 그대로 읽을 수 있는 상품별 요약을 보여준다
   const sm = itemSummary(savedRec.orders);
   const lines = sm.map(e=>{
@@ -1532,14 +1626,18 @@ $('#btnReset').addEventListener('click', async ()=>{
   });
   if(!r) return;
   if(r.v==='orders'){
-    state.orders = []; state.cur = null; state.status = {}; state.payment = null;
+    state.orders = []; state.cartTombs = []; state.cartClearedAt = Date.now();
+    state.cur = null; state.status = {}; state.payment = null;
     save(); updateFab(); show('start');
-    toast('담긴 주문을 지웠어요');
+    toast('담긴 주문을 지웠어요 (모든 기기)');
+    syncCart();
   } else {
     // 삭제 시각을 남겨 클라우드와 다른 기기의 기록도 함께 지운다
-    state = {guests:[], orders:[], cur:null, status:{}, history:[], payment:null, favs:[], clearedAt: Date.now()};
+    state = {guests:[], orders:[], cur:null, status:{}, history:[], payment:null, favs:[],
+             clearedAt: Date.now(), cartTombs:[], cartClearedAt: Date.now()};
     save(); updateFab(); show('start');
     toast('통계 기록 삭제 중…');
+    syncCart();
     syncNow().then(ok=>{
       toast(ok? '팀 통계 기록까지 모두 지웠어요' : '☁️ 오프라인 — 연결되면 팀 기록도 함께 지워져요');
     });
@@ -1686,5 +1784,6 @@ function toast(msg){
 buildMenu();
 updateFab();
 if(state.orders.length) show('who');
-syncNow();   // 접속 시 팀 공유 통계 자동 동기화
+syncNow();    // 접속 시 팀 공유 통계 자동 동기화
+syncCart();   // 접속 시 팀 공유 장바구니 자동 동기화
 </script>
